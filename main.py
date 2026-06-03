@@ -10,8 +10,12 @@ import array
 pygame.init()
 
 # =========================================================
-# RESPONSIVE PYGAME / PYGBAG SETUP
+# CLEAR WEB + MOBILE RESPONSIVE SETUP
 # =========================================================
+# This version fixes the GitHub/Pygbag browser problem where the game appears as
+# a small blurry desktop canvas with grey space around it. It reads the real
+# browser viewport, uses a portrait mobile layout on phones, and forces the
+# canvas to fill the Chrome/Safari screen.
 IS_BROWSER = sys.platform == "emscripten"
 
 DESKTOP_SIZE = (1000, 700)
@@ -21,44 +25,150 @@ DISPLAY_W, DISPLAY_H = DESKTOP_SIZE
 WIDTH, HEIGHT = DESKTOP_SIZE
 MOBILE_LAYOUT = False
 
-DISPLAY_FLAGS = pygame.RESIZABLE
+try:
+    DISPLAY_FLAGS = pygame.RESIZABLE
+except Exception:
+    DISPLAY_FLAGS = 0
+
+
+def get_js_viewport_size():
+    """Return the real browser viewport size in CSS pixels when running in Pygbag."""
+    if not IS_BROWSER:
+        return None
+    try:
+        import platform as browser_platform
+        window = getattr(browser_platform, "window", None)
+        if window is None:
+            return None
+
+        # innerWidth/innerHeight are the visible page area. This is more reliable
+        # on GitHub Pages than pygame.display.Info(), which can return the old
+        # desktop canvas size such as 1000x700.
+        w = int(window.innerWidth)
+        h = int(window.innerHeight)
+        if w > 0 and h > 0:
+            return w, h
+    except Exception:
+        pass
+    return None
+
+
+def apply_browser_page_fix():
+    """Make the generated Pygbag canvas fill the whole mobile/desktop browser."""
+    if not IS_BROWSER:
+        return
+    try:
+        import platform as browser_platform
+        window = getattr(browser_platform, "window", None)
+        if window is None:
+            return
+        document = window.document
+
+        # Remove the default grey page background/margins and stop the page from
+        # scrolling while using touch controls.
+        document.documentElement.style.margin = "0"
+        document.documentElement.style.padding = "0"
+        document.documentElement.style.width = "100%"
+        document.documentElement.style.height = "100%"
+        document.documentElement.style.overflow = "hidden"
+        document.documentElement.style.background = "#0A1220"
+
+        document.body.style.margin = "0"
+        document.body.style.padding = "0"
+        document.body.style.width = "100vw"
+        document.body.style.height = "100dvh"
+        document.body.style.minHeight = "100vh"
+        document.body.style.overflow = "hidden"
+        document.body.style.background = "#0A1220"
+        document.body.style.touchAction = "none"
+
+        canvas = document.querySelector("canvas")
+        if canvas:
+            canvas.style.position = "fixed"
+            canvas.style.left = "0"
+            canvas.style.top = "0"
+            canvas.style.right = "0"
+            canvas.style.bottom = "0"
+            canvas.style.width = "100vw"
+            canvas.style.height = "100dvh"
+            canvas.style.maxWidth = "none"
+            canvas.style.maxHeight = "none"
+            canvas.style.margin = "0"
+            canvas.style.padding = "0"
+            canvas.style.display = "block"
+            canvas.style.objectFit = "fill"
+            canvas.style.background = "#0A1220"
+            canvas.style.touchAction = "none"
+    except Exception:
+        pass
 
 
 def get_real_display_size():
     """Safe display-size detection for desktop and Pygbag browser/mobile."""
+    js_size = get_js_viewport_size()
+    if js_size:
+        return js_size
+
     try:
         info = pygame.display.Info()
         if info.current_w > 0 and info.current_h > 0:
             return int(info.current_w), int(info.current_h)
     except Exception:
         pass
+
     return DESKTOP_SIZE
 
 
-if IS_BROWSER:
-    DISPLAY_W, DISPLAY_H = get_real_display_size()
-    MOBILE_LAYOUT = DISPLAY_H >= DISPLAY_W or DISPLAY_W <= 650
-    WIDTH, HEIGHT = MOBILE_SIZE if MOBILE_LAYOUT else DESKTOP_SIZE
-else:
-    DISPLAY_W, DISPLAY_H = DESKTOP_SIZE
-    WIDTH, HEIGHT = DESKTOP_SIZE
+def choose_mobile_layout(display_w, display_h):
+    """Use the clear portrait mobile screens on phones and small browser windows."""
+    return display_h >= display_w or display_w <= 700
+
+
+# Initial layout selection.
+apply_browser_page_fix()
+DISPLAY_W, DISPLAY_H = get_real_display_size()
+MOBILE_LAYOUT = choose_mobile_layout(DISPLAY_W, DISPLAY_H)
+WIDTH, HEIGHT = MOBILE_SIZE if MOBILE_LAYOUT else DESKTOP_SIZE
 
 display_screen = pygame.display.set_mode((DISPLAY_W, DISPLAY_H), DISPLAY_FLAGS)
 screen = pygame.Surface((WIDTH, HEIGHT))
 pygame.display.set_caption("CyberShield Academy: Teen Digital Defenders")
 clock = pygame.time.Clock()
+apply_browser_page_fix()
 
 
 def configure_layout_after_resize(w=None, h=None):
-    """Update real display size. The game uses a virtual layout and scales clearly."""
-    global DISPLAY_W, DISPLAY_H, display_screen
+    """Update browser/window size and rebuild layout when orientation changes."""
+    global DISPLAY_W, DISPLAY_H, WIDTH, HEIGHT, MOBILE_LAYOUT
+    global display_screen, screen, player_speed, enemy_speed
 
     if w is None or h is None:
         w, h = get_real_display_size()
 
     DISPLAY_W = max(1, int(w))
     DISPLAY_H = max(1, int(h))
+
+    new_mobile = choose_mobile_layout(DISPLAY_W, DISPLAY_H)
+    layout_changed = new_mobile != MOBILE_LAYOUT
+    MOBILE_LAYOUT = new_mobile
+    WIDTH, HEIGHT = MOBILE_SIZE if MOBILE_LAYOUT else DESKTOP_SIZE
+
     display_screen = pygame.display.set_mode((DISPLAY_W, DISPLAY_H), DISPLAY_FLAGS)
+
+    if layout_changed or screen.get_size() != (WIDTH, HEIGHT):
+        screen = pygame.Surface((WIDTH, HEIGHT))
+
+        # These are defined later, so only call them after the full file is loaded.
+        if "make_fonts" in globals():
+            make_fonts()
+        if "make_rects_for_layout" in globals():
+            make_rects_for_layout()
+        if "player_speed" in globals():
+            player_speed = 4 if MOBILE_LAYOUT else 5
+        if "enemy_speed" in globals():
+            enemy_speed = 2.4 if MOBILE_LAYOUT else 3.0
+
+    apply_browser_page_fix()
 
 
 def screen_to_game_pos(pos):
@@ -74,13 +184,20 @@ def finger_to_game_pos(event):
 
 def present_frame():
     """Scale the virtual game to the whole desktop/mobile/browser frame."""
+    if IS_BROWSER:
+        apply_browser_page_fix()
+
+    display_screen.fill(DARK_BG if "DARK_BG" in globals() else (10, 18, 32))
+
     if display_screen.get_size() != (WIDTH, HEIGHT):
-        frame = pygame.transform.smoothscale(screen, (DISPLAY_W, DISPLAY_H))
+        # Use normal scale instead of smoothscale because smoothscale made small
+        # web text look blurry on mobile screenshots.
+        frame = pygame.transform.scale(screen, (DISPLAY_W, DISPLAY_H))
         display_screen.blit(frame, (0, 0))
     else:
         display_screen.blit(screen, (0, 0))
-    pygame.display.flip()
 
+    pygame.display.flip()
 
 # =========================================================
 # THEME
@@ -1413,8 +1530,20 @@ def update_input_from_event(event):
 async def main():
     global pointer_pos, pointer_just_pressed, game_state
 
+    frame_counter = 0
+
     while True:
         pointer_just_pressed = False
+        frame_counter += 1
+
+        # On mobile browsers the address bar can change the viewport height.
+        # Checking regularly keeps the canvas fitted after refresh/orientation changes.
+        if IS_BROWSER and frame_counter % 20 == 0:
+            current_w, current_h = get_real_display_size()
+            if abs(current_w - DISPLAY_W) > 2 or abs(current_h - DISPLAY_H) > 2:
+                configure_layout_after_resize(current_w, current_h)
+            else:
+                apply_browser_page_fix()
 
         if not pointer_pressed:
             try:
