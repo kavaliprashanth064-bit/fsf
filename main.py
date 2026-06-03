@@ -1,3 +1,4 @@
+
 import asyncio
 import pygame
 import sys
@@ -8,94 +9,82 @@ import array
 
 pygame.init()
 
-# Browser detection for Pygbag/mobile web
+# =========================================================
+# RESPONSIVE PYGAME / PYGBAG SETUP
+# =========================================================
 IS_BROWSER = sys.platform == "emscripten"
 
-# =========================
-# SOUND SYSTEM
-# =========================
-try:
-    pygame.mixer.init(frequency=44100, size=-16, channels=1)
-    SOUND_ON = True
-except Exception:
-    SOUND_ON = False
+DESKTOP_SIZE = (1000, 700)
+MOBILE_SIZE = (430, 760)
+
+DISPLAY_W, DISPLAY_H = DESKTOP_SIZE
+WIDTH, HEIGHT = DESKTOP_SIZE
+MOBILE_LAYOUT = False
+
+DISPLAY_FLAGS = pygame.RESIZABLE
 
 
-# =========================
-# WINDOW / DISPLAY
-# =========================
-# Logical game size. Keep the game drawn at 1000x700, then scale it to the real
-# browser/phone screen. This prevents the mobile browser from showing a tiny
-# desktop canvas.
-WIDTH, HEIGHT = 1000, 700
-DISPLAY_W, DISPLAY_H = WIDTH, HEIGHT
-
-DISPLAY_FLAGS = 0
-try:
-    DISPLAY_FLAGS = pygame.SCALED | pygame.RESIZABLE
-except Exception:
-    DISPLAY_FLAGS = 0
-
-def get_browser_display_size():
-    """Get the best available browser/canvas size for Pygbag/mobile."""
+def get_real_display_size():
+    """Safe display-size detection for desktop and Pygbag browser/mobile."""
     try:
         info = pygame.display.Info()
         if info.current_w > 0 and info.current_h > 0:
-            return info.current_w, info.current_h
+            return int(info.current_w), int(info.current_h)
     except Exception:
         pass
-    return WIDTH, HEIGHT
+    return DESKTOP_SIZE
+
 
 if IS_BROWSER:
-    DISPLAY_W, DISPLAY_H = get_browser_display_size()
-    display_screen = pygame.display.set_mode((DISPLAY_W, DISPLAY_H), DISPLAY_FLAGS)
-    # All game drawing still happens on this virtual screen.
-    screen = pygame.Surface((WIDTH, HEIGHT))
+    DISPLAY_W, DISPLAY_H = get_real_display_size()
+    MOBILE_LAYOUT = DISPLAY_H >= DISPLAY_W or DISPLAY_W <= 650
+    WIDTH, HEIGHT = MOBILE_SIZE if MOBILE_LAYOUT else DESKTOP_SIZE
 else:
-    display_screen = pygame.display.set_mode((WIDTH, HEIGHT), DISPLAY_FLAGS)
-    screen = display_screen
+    DISPLAY_W, DISPLAY_H = DESKTOP_SIZE
+    WIDTH, HEIGHT = DESKTOP_SIZE
 
+display_screen = pygame.display.set_mode((DISPLAY_W, DISPLAY_H), DISPLAY_FLAGS)
+screen = pygame.Surface((WIDTH, HEIGHT))
 pygame.display.set_caption("CyberShield Academy: Teen Digital Defenders")
 clock = pygame.time.Clock()
 
 
-def screen_to_game_pos(pos):
-    """Convert real screen/touch coordinates to the 1000x700 game coordinates."""
-    if not IS_BROWSER:
-        return pos
-
-    x, y = pos
-    game_x = int(x * WIDTH / max(1, DISPLAY_W))
-    game_y = int(y * HEIGHT / max(1, DISPLAY_H))
-    return game_x, game_y
-
-
-def update_display_size(w=None, h=None):
-    """Update browser/mobile canvas size when phone orientation or window changes."""
+def configure_layout_after_resize(w=None, h=None):
+    """Update real display size. The game uses a virtual layout and scales clearly."""
     global DISPLAY_W, DISPLAY_H, display_screen
 
-    if not IS_BROWSER:
-        return
-
     if w is None or h is None:
-        w, h = get_browser_display_size()
+        w, h = get_real_display_size()
 
     DISPLAY_W = max(1, int(w))
     DISPLAY_H = max(1, int(h))
     display_screen = pygame.display.set_mode((DISPLAY_W, DISPLAY_H), DISPLAY_FLAGS)
 
 
-def present_frame():
-    """Show the game. On mobile/browser it stretches to the full device frame."""
-    if IS_BROWSER:
-        scaled_frame = pygame.transform.smoothscale(screen, (DISPLAY_W, DISPLAY_H))
-        display_screen.blit(scaled_frame, (0, 0))
+def screen_to_game_pos(pos):
+    """Convert desktop/browser click coordinates into virtual game coordinates."""
+    x, y = pos
+    return int(x * WIDTH / max(1, DISPLAY_W)), int(y * HEIGHT / max(1, DISPLAY_H))
 
+
+def finger_to_game_pos(event):
+    """Pygame finger events use 0..1 coordinates. Convert directly to game layout."""
+    return int(event.x * WIDTH), int(event.y * HEIGHT)
+
+
+def present_frame():
+    """Scale the virtual game to the whole desktop/mobile/browser frame."""
+    if display_screen.get_size() != (WIDTH, HEIGHT):
+        frame = pygame.transform.smoothscale(screen, (DISPLAY_W, DISPLAY_H))
+        display_screen.blit(frame, (0, 0))
+    else:
+        display_screen.blit(screen, (0, 0))
     pygame.display.flip()
 
-# =========================
-# THEME COLOURS
-# =========================
+
+# =========================================================
+# THEME
+# =========================================================
 WHITE = (235, 242, 250)
 BLACK = (8, 13, 20)
 
@@ -111,61 +100,85 @@ NEON_PINK = (213, 63, 140)
 RED = (229, 62, 62)
 YELLOW = (236, 201, 75)
 ORANGE = (237, 137, 54)
-GRAY = (113, 128, 150)
+GRAY = (135, 150, 170)
 
-SOFT_BLUE = (49, 130, 206)
 OPTION_BG = (28, 54, 88)
 OPTION_HOVER = (66, 153, 225)
 OPTION_BORDER = (99, 179, 237)
 PROGRESS_BG = (31, 41, 55)
 
-# =========================
-# ASSET / FONT LOADING
-# =========================
+
+# =========================================================
+# ASSETS / FONTS
+# =========================================================
 def base_path():
-    """Works in normal Python, PyInstaller, and Pygbag."""
     if hasattr(sys, "_MEIPASS"):
         return sys._MEIPASS
-    return os.path.dirname(os.path.abspath(__file__))
+    try:
+        return os.path.dirname(os.path.abspath(__file__))
+    except Exception:
+        return os.getcwd()
 
 
 BASE_DIR = base_path()
-FONT_DIR = os.path.join(BASE_DIR, "assets", "fonts")
-
-
-def load_font(filename, size, fallback="arial", bold=False):
-    """
-    Put these optional fonts in assets/fonts:
-        Rajdhani-Bold.ttf
-        Inter-Regular.ttf
-        Inter-SemiBold.ttf
-
-    If they are missing, the game still runs using system fonts.
-    """
-    path = os.path.join(FONT_DIR, filename)
-    try:
-        if os.path.exists(path):
-            return pygame.font.Font(path, size)
-    except Exception:
-        pass
-
-    try:
-        return pygame.font.SysFont(fallback, size, bold=bold)
-    except Exception:
-        return pygame.font.Font(None, size)
-
-
-font = load_font("Inter-SemiBold.ttf", 25, bold=True)
-small_font = load_font("Inter-Regular.ttf", 19)
-title_font = load_font("Rajdhani-Bold.ttf", 44, bold=True)
-big_title_font = load_font("Rajdhani-Bold.ttf", 56, bold=True)
-
 HIGH_SCORE_FILE = os.path.join(BASE_DIR, "cybershield_teen_defenders_highscore.txt")
 
-# =========================
-# SOUND HELPERS
-# =========================
-def make_sound(freq=440, duration=0.2, volume=0.4):
+
+def load_font(size, bold=False):
+    """Reliable fonts for PyCharm and browser builds."""
+    preferred = ["arial", "calibri", "verdana", "dejavusans"]
+    for name in preferred:
+        try:
+            font_obj = pygame.font.SysFont(name, size, bold=bold)
+            if font_obj:
+                return font_obj
+        except Exception:
+            pass
+    return pygame.font.Font(None, size)
+
+
+def make_fonts():
+    global FONT_SMALL, FONT, FONT_TITLE, FONT_BIG, FONT_TINY
+    if MOBILE_LAYOUT:
+        FONT_TINY = load_font(14)
+        FONT_SMALL = load_font(17)
+        FONT = load_font(21, bold=True)
+        FONT_TITLE = load_font(28, bold=True)
+        FONT_BIG = load_font(35, bold=True)
+    else:
+        FONT_TINY = load_font(17)
+        FONT_SMALL = load_font(20)
+        FONT = load_font(26, bold=True)
+        FONT_TITLE = load_font(42, bold=True)
+        FONT_BIG = load_font(56, bold=True)
+
+
+make_fonts()
+
+
+def get_font(size="normal"):
+    if size == "tiny":
+        return FONT_TINY
+    if size == "small":
+        return FONT_SMALL
+    if size == "title":
+        return FONT_TITLE
+    if size == "big":
+        return FONT_BIG
+    return FONT
+
+
+# =========================================================
+# SOUND SYSTEM
+# =========================================================
+try:
+    pygame.mixer.init(frequency=44100, size=-16, channels=1)
+    SOUND_ON = True
+except Exception:
+    SOUND_ON = False
+
+
+def make_sound(freq=440, duration=0.2, volume=0.35):
     if not SOUND_ON:
         return None
 
@@ -183,11 +196,11 @@ def make_sound(freq=440, duration=0.2, volume=0.4):
         return None
 
 
-click_sound = make_sound(500, 0.08)
-correct_sound = make_sound(850, 0.15)
-wrong_sound = make_sound(180, 0.25)
-coin_sound = make_sound(1100, 0.08)
-win_sound = make_sound(700, 0.5)
+click_sound = make_sound(500, 0.07)
+correct_sound = make_sound(850, 0.14)
+wrong_sound = make_sound(180, 0.22)
+coin_sound = make_sound(1100, 0.07)
+win_sound = make_sound(700, 0.45)
 
 
 def play(sound):
@@ -198,80 +211,9 @@ def play(sound):
             pass
 
 
-# =========================
-# HIGH SCORE
-# =========================
-def load_high_score():
-    if IS_BROWSER:
-        return 0
-
-    if os.path.exists(HIGH_SCORE_FILE):
-        try:
-            with open(HIGH_SCORE_FILE, "r") as file:
-                return int(file.read())
-        except Exception:
-            return 0
-    return 0
-
-
-def save_high_score(value):
-    if IS_BROWSER:
-        return
-
-    try:
-        with open(HIGH_SCORE_FILE, "w") as file:
-            file.write(str(value))
-    except Exception:
-        pass
-
-
-# =========================
-# GAME VARIABLES
-# =========================
-score = 0
-coins = 0
-level = 0
-lives = 3
-game_state = "start"
-selected_message = ""
-badges = []
-question_start_time = 0
-mini_start_time = 0
-high_score = load_high_score()
-
-mouse_clicked = False
-pointer_pressed = False
-pointer_pos = (0, 0)
-
-selected_quiz_option = None
-mission_passed = False
-completed_levels = set()
-
-player = pygame.Rect(80, 500, 42, 55)
-player_speed = 5
-hero_frame = 0
-
-enemy = pygame.Rect(750, 470, 60, 60)
-enemy_speed = 3
-enemy_direction = 1
-
-collectibles = []
-mini_target = 4
-mini_collected = 0
-
-# Shorter play area leaves room for mobile touch controls at the bottom.
-PLAY_AREA = pygame.Rect(40, 220, 920, 340)
-COLLECTIBLE_SIZE = 26
-COLLECTIBLE_PADDING = 34
-
-particles = []
-
-# Mobile touch D-pad
-touch_left = pygame.Rect(55, 610, 60, 60)
-touch_right = pygame.Rect(185, 610, 60, 60)
-touch_up = pygame.Rect(120, 545, 60, 60)
-touch_down = pygame.Rect(120, 610, 60, 60)
-
+# =========================================================
+# GAME DATA
+# =========================================================
 tools = [
     "Firewall Shield",
     "Password Scanner",
@@ -361,79 +303,116 @@ levels = [
 ]
 
 
-# =========================
-# UI FUNCTIONS
-# =========================
-def get_font(size="normal"):
-    if size == "title":
-        return title_font
-    if size == "big":
-        return big_title_font
-    if size == "small":
-        return small_font
-    return font
+# =========================================================
+# STATE
+# =========================================================
+score = 0
+coins = 0
+level = 0
+lives = 3
+game_state = "start"
+selected_message = ""
+badges = []
+question_start_time = 0
+mini_start_time = 0
+selected_quiz_option = None
+mission_passed = False
+completed_levels = set()
+
+pointer_pos = (0, 0)
+pointer_pressed = False
+pointer_just_pressed = False
+
+player_speed = 4 if MOBILE_LAYOUT else 5
+enemy_speed = 2.4 if MOBILE_LAYOUT else 3.0
+enemy_direction = 1
+collectibles = []
+mini_target = 4
+particles = []
+hero_frame = 0
 
 
-def spaced_line_width(text, used_font, extra_word_spacing=0):
-    words = text.split(" ")
-    if len(words) <= 1:
-        return used_font.size(text)[0]
-
-    total = 0
-    space_width = used_font.size(" ")[0] + extra_word_spacing
-
-    for index, word in enumerate(words):
-        total += used_font.size(word)[0]
-        if index < len(words) - 1:
-            total += space_width
-
-    return total
+def load_high_score():
+    if IS_BROWSER:
+        return 0
+    try:
+        if os.path.exists(HIGH_SCORE_FILE):
+            with open(HIGH_SCORE_FILE, "r", encoding="utf-8") as f:
+                return int(f.read().strip())
+    except Exception:
+        pass
+    return 0
 
 
-def draw_spaced_line(text, x, y, color=WHITE, size="normal", extra_word_spacing=2):
-    used_font = get_font(size)
-    words = text.split(" ")
-
-    if len(words) <= 1:
-        render = used_font.render(text, True, color)
-        screen.blit(render, (x, y))
-        return render.get_width()
-
-    cursor_x = x
-    space_width = used_font.size(" ")[0] + extra_word_spacing
-
-    for index, word in enumerate(words):
-        render = used_font.render(word, True, color)
-        screen.blit(render, (cursor_x, y))
-        cursor_x += render.get_width()
-        if index < len(words) - 1:
-            cursor_x += space_width
-
-    return cursor_x - x
+def save_high_score(value):
+    if IS_BROWSER:
+        return
+    try:
+        with open(HIGH_SCORE_FILE, "w", encoding="utf-8") as f:
+            f.write(str(value))
+    except Exception:
+        pass
 
 
-def draw_text(text, x, y, color=WHITE, size="normal"):
-    draw_spaced_line(text, x, y, color, size, 1)
+high_score = load_high_score()
 
 
-def draw_centered_text(text, y, color=WHITE, size="normal", x=0, width=WIDTH):
-    used_font = get_font(size)
-    extra_spacing = 5 if size in ["big", "title"] else 2
-    text_width = spaced_line_width(text, used_font, extra_spacing)
-    text_x = x + (width - text_width) // 2
-    draw_spaced_line(text, text_x, y, color, size, extra_spacing)
+# =========================================================
+# RESPONSIVE GAME OBJECTS
+# =========================================================
+def make_rects_for_layout():
+    global PLAY_AREA, player, enemy
+    global touch_left, touch_right, touch_up, touch_down
+
+    if MOBILE_LAYOUT:
+        PLAY_AREA = pygame.Rect(25, 215, WIDTH - 50, 315)
+
+        pad_size = 58
+        base_y = HEIGHT - 130
+        base_x = 35
+        touch_left = pygame.Rect(base_x, base_y + 58, pad_size, pad_size)
+        touch_right = pygame.Rect(base_x + 132, base_y + 58, pad_size, pad_size)
+        touch_up = pygame.Rect(base_x + 66, base_y, pad_size, pad_size)
+        touch_down = pygame.Rect(base_x + 66, base_y + 58, pad_size, pad_size)
+    else:
+        PLAY_AREA = pygame.Rect(40, 220, WIDTH - 80, 340)
+
+        touch_left = pygame.Rect(55, 610, 60, 60)
+        touch_right = pygame.Rect(185, 610, 60, 60)
+        touch_up = pygame.Rect(120, 545, 60, 60)
+        touch_down = pygame.Rect(120, 610, 60, 60)
+
+    player_w, player_h = (34, 45) if MOBILE_LAYOUT else (42, 55)
+    enemy_w, enemy_h = (46, 46) if MOBILE_LAYOUT else (60, 60)
+
+    player = pygame.Rect(PLAY_AREA.left + 45, PLAY_AREA.bottom - player_h - 15, player_w, player_h)
+    enemy = pygame.Rect(PLAY_AREA.right - enemy_w - 100, PLAY_AREA.top + 45, enemy_w, enemy_h)
 
 
-def wrap_text_lines(text, max_width, used_font):
-    words = text.split(" ")
+make_rects_for_layout()
+
+
+# =========================================================
+# UI HELPERS
+# =========================================================
+def is_dark_colour(color):
+    brightness = (color[0] * 299 + color[1] * 587 + color[2] * 114) / 1000
+    return brightness < 130
+
+
+def text_width(text, font):
+    return font.size(text)[0]
+
+
+def wrap_text(text, max_width, font):
+    words = text.split()
     lines = []
     line = ""
 
     for word in words:
-        test_line = (line + " " + word).strip()
-
-        if used_font.size(test_line)[0] <= max_width:
-            line = test_line
+        test = (line + " " + word).strip()
+        if font.size(test)[0] <= max_width:
+            line = test
         else:
             if line:
                 lines.append(line)
@@ -445,153 +424,164 @@ def wrap_text_lines(text, max_width, used_font):
     return lines
 
 
-def draw_wrapped_text(text, x, y, max_width, color=WHITE, size="small", line_gap=10, align="left", word_spacing=2):
-    used_font = get_font(size)
-    safe_width = max_width - 10
-    lines = wrap_text_lines(text, safe_width, used_font)
+def draw_text(text, x, y, color=WHITE, size="normal"):
+    font = get_font(size)
+    render = font.render(str(text), True, color)
+    screen.blit(render, (x, y))
+    return render.get_rect(topleft=(x, y))
+
+
+def draw_centered_text(text, y, color=WHITE, size="normal", x=0, width=None):
+    if width is None:
+        width = WIDTH
+    font = get_font(size)
+    render = font.render(str(text), True, color)
+    screen.blit(render, (x + (width - render.get_width()) // 2, y))
+    return render.get_rect()
+
+
+def draw_wrapped_text(text, x, y, max_width, color=WHITE, size="small", line_gap=6, align="left"):
+    font = get_font(size)
+    lines = wrap_text(str(text), max_width, font)
 
     for line in lines:
-        line_width = spaced_line_width(line, used_font, word_spacing)
-
+        render = font.render(line, True, color)
         if align == "center":
-            line_x = x + (max_width - line_width) // 2
+            line_x = x + (max_width - render.get_width()) // 2
         elif align == "right":
-            line_x = x + max_width - line_width
+            line_x = x + max_width - render.get_width()
         else:
             line_x = x
+        screen.blit(render, (line_x, y))
+        y += font.get_height() + line_gap
 
-        draw_spaced_line(line, line_x, y, color, size, word_spacing)
-        y += used_font.get_height() + line_gap
-
-    return y - line_gap
+    return y
 
 
-def draw_panel_title(text, x, y, w, color=WHITE, size="normal"):
-    draw_centered_text(text, y, color, size, x, w)
+def draw_panel(x, y, w, h, border_color=NEON_BLUE, fill=CARD_BG, radius=16):
+    rect = pygame.Rect(x, y, w, h)
+    pygame.draw.rect(screen, fill, rect, border_radius=radius)
+    pygame.draw.rect(screen, border_color, rect, 2, border_radius=radius)
+    return rect
 
 
 def draw_progress_bar(x, y, w, h, value, fill_color):
     value = max(0, min(1, value))
-    bg_rect = pygame.Rect(x, y, w, h)
-    fill_rect = pygame.Rect(x, y, int(w * value), h)
-
-    pygame.draw.rect(screen, PROGRESS_BG, bg_rect, border_radius=10)
-    pygame.draw.rect(screen, fill_color, fill_rect, border_radius=10)
-    pygame.draw.rect(screen, WHITE, bg_rect, 2, border_radius=10)
-
-
-def is_dark_colour(color):
-    brightness = (color[0] * 299 + color[1] * 587 + color[2] * 114) / 1000
-    return brightness < 120
+    bg = pygame.Rect(x, y, w, h)
+    fill = pygame.Rect(x, y, int(w * value), h)
+    pygame.draw.rect(screen, PROGRESS_BG, bg, border_radius=10)
+    pygame.draw.rect(screen, fill_color, fill, border_radius=10)
+    pygame.draw.rect(screen, WHITE, bg, 1, border_radius=10)
 
 
 def draw_cyber_background():
     screen.fill(DARK_BG)
 
-    for x in range(0, WIDTH, 50):
+    grid = 40 if MOBILE_LAYOUT else 50
+    for x in range(0, WIDTH, grid):
         pygame.draw.line(screen, (18, 35, 75), (x, 0), (x, HEIGHT), 1)
 
-    for y in range(0, HEIGHT, 50):
+    for y in range(0, HEIGHT, grid):
         pygame.draw.line(screen, (18, 35, 75), (0, y), (WIDTH, y), 1)
 
-    pygame.draw.circle(screen, (0, 80, 120), (850, 120), 75, 2)
-    pygame.draw.circle(screen, (80, 40, 130), (130, 560), 95, 2)
-    pygame.draw.circle(screen, (0, 100, 80), (500, 650), 120, 1)
+    pygame.draw.circle(screen, (0, 80, 120), (int(WIDTH * 0.83), int(HEIGHT * 0.16)), 48 if MOBILE_LAYOUT else 75, 2)
+    pygame.draw.circle(screen, (80, 40, 130), (int(WIDTH * 0.16), int(HEIGHT * 0.80)), 62 if MOBILE_LAYOUT else 95, 2)
 
-    # Low particle count for better mobile performance.
-    for _ in range(12):
-        x = random.randint(0, WIDTH)
-        y = random.randint(0, HEIGHT)
-        pygame.draw.circle(screen, (0, 80, 120), (x, y), 1)
+    # Keep particles very light for phone performance.
+    for _ in range(6 if MOBILE_LAYOUT else 12):
+        pygame.draw.circle(screen, (0, 80, 120), (random.randint(0, WIDTH), random.randint(0, HEIGHT)), 1)
 
 
-def draw_panel(x, y, w, h, border_color=NEON_BLUE):
-    panel = pygame.Rect(x, y, w, h)
-    pygame.draw.rect(screen, CARD_BG, panel, border_radius=18)
-    pygame.draw.rect(screen, border_color, panel, 2, border_radius=18)
+def consume_click(rect):
+    global pointer_just_pressed
+    touch_rect = rect.inflate(10 if MOBILE_LAYOUT else 4, 10 if MOBILE_LAYOUT else 4)
+    if pointer_just_pressed and touch_rect.collidepoint(pointer_pos):
+        pointer_just_pressed = False
+        play(click_sound)
+        return True
+    return False
 
 
-def draw_button(text, x, y, w, h, color=NEON_GREEN):
-    global mouse_clicked
-
+def draw_button(text, x, y, w, h, color=NEON_GREEN, size="small"):
     rect = pygame.Rect(x, y, w, h)
-    hover = rect.collidepoint(pointer_pos)
+    hover = rect.inflate(8, 8).collidepoint(pointer_pos)
 
     if hover:
-        button_color = YELLOW
+        fill = YELLOW
+        border = WHITE
         text_color = BLACK
-        border_color = WHITE
     else:
-        button_color = color
+        fill = color
+        border = OPTION_BORDER if is_dark_colour(color) else NEON_BLUE
         text_color = WHITE if is_dark_colour(color) else BLACK
-        border_color = OPTION_BORDER if is_dark_colour(color) else NEON_BLUE
 
-    pygame.draw.rect(screen, button_color, rect, border_radius=15)
-    pygame.draw.rect(screen, border_color, rect, 3, border_radius=15)
+    pygame.draw.rect(screen, fill, rect, border_radius=14)
+    pygame.draw.rect(screen, border, rect, 3, border_radius=14)
 
-    lines = wrap_text_lines(text, w - 34, small_font)
-    total_height = len(lines) * small_font.get_height() + max(0, len(lines) - 1) * 6
-    text_y = y + (h - total_height) // 2
+    font = get_font(size)
+    lines = wrap_text(text, w - 22, font)
+    total_h = len(lines) * font.get_height() + max(0, len(lines) - 1) * 4
+    text_y = y + (h - total_h) // 2
 
     for line in lines:
-        line_width = spaced_line_width(line, small_font, 2)
-        text_x = x + (w - line_width) // 2
-        draw_spaced_line(line, text_x, text_y, text_color, "small", 2)
-        text_y += small_font.get_height() + 6
+        render = font.render(line, True, text_color)
+        screen.blit(render, (x + (w - render.get_width()) // 2, text_y))
+        text_y += font.get_height() + 4
 
-    if hover and mouse_clicked:
-        play(click_sound)
-        return True
-
-    return False
+    return consume_click(rect)
 
 
-def draw_quiz_option_button(index, text, x, y, w, h, accent_color):
-    global mouse_clicked
-
+def draw_quiz_option(index, text, x, y, w, h, accent_color):
     rect = pygame.Rect(x, y, w, h)
-    hover = rect.collidepoint(pointer_pos)
+    hover = rect.inflate(8, 8).collidepoint(pointer_pos)
 
-    button_color = OPTION_HOVER if hover else OPTION_BG
-    border_color = YELLOW if hover else accent_color
+    fill = OPTION_HOVER if hover else OPTION_BG
+    border = YELLOW if hover else accent_color
     text_color = BLACK if hover else WHITE
-    number_color = BLACK if hover else YELLOW
 
-    pygame.draw.rect(screen, button_color, rect, border_radius=16)
-    pygame.draw.rect(screen, border_color, rect, 3, border_radius=16)
+    pygame.draw.rect(screen, fill, rect, border_radius=14)
+    pygame.draw.rect(screen, border, rect, 3, border_radius=14)
 
-    number_rect = pygame.Rect(x + 14, y + 10, 42, h - 20)
-    pygame.draw.rect(screen, border_color, number_rect, border_radius=12)
-    draw_centered_text(str(index + 1), y + 15, number_color, "small", x + 14, 42)
+    num_w = 36 if MOBILE_LAYOUT else 44
+    num_rect = pygame.Rect(x + 10, y + 9, num_w, h - 18)
+    pygame.draw.rect(screen, border, num_rect, border_radius=10)
 
-    draw_wrapped_text(text, x + 72, y + 13, w - 92, text_color, "small", 4, "left", 3)
+    draw_centered_text(str(index + 1), y + (h - get_font("small").get_height()) // 2, text_color, "small", num_rect.x, num_rect.w)
+    draw_wrapped_text(text, x + num_w + 22, y + 10, w - num_w - 32, text_color, "small", 3)
 
-    if hover and mouse_clicked:
-        play(click_sound)
-        return True
-
-    return False
+    return consume_click(rect)
 
 
 def draw_hud():
-    pygame.draw.rect(screen, DARK_PANEL, (0, 0, WIDTH, 82))
-    pygame.draw.line(screen, NEON_BLUE, (0, 82), (WIDTH, 82), 3)
+    if MOBILE_LAYOUT:
+        pygame.draw.rect(screen, DARK_PANEL, (0, 0, WIDTH, 82))
+        pygame.draw.line(screen, NEON_BLUE, (0, 82), (WIDTH, 82), 2)
 
-    draw_text("SCORE: " + str(score), 30, 25, NEON_BLUE, "small")
-    draw_text("CREDITS: " + str(coins), 175, 25, NEON_GREEN, "small")
-    draw_text("LIVES: " + str(lives), 320, 25, RED, "small")
-    draw_text("HIGH SCORE: " + str(high_score), 520, 25, NEON_PURPLE, "small")
-    draw_text("LEVEL: " + str(level + 1) + "/" + str(len(levels)), 800, 25, YELLOW, "small")
+        draw_text("Score " + str(score), 16, 14, NEON_BLUE, "tiny")
+        draw_text("Credits " + str(coins), 146, 14, NEON_GREEN, "tiny")
+        draw_text("Lives " + str(lives), 300, 14, RED, "tiny")
+
+        draw_text("High " + str(high_score), 16, 48, NEON_PURPLE, "tiny")
+        draw_text("Level " + str(level + 1) + "/" + str(len(levels)), 300, 48, YELLOW, "tiny")
+    else:
+        pygame.draw.rect(screen, DARK_PANEL, (0, 0, WIDTH, 82))
+        pygame.draw.line(screen, NEON_BLUE, (0, 82), (WIDTH, 82), 3)
+
+        draw_text("SCORE: " + str(score), 30, 25, NEON_BLUE, "small")
+        draw_text("CREDITS: " + str(coins), 175, 25, NEON_GREEN, "small")
+        draw_text("LIVES: " + str(lives), 320, 25, RED, "small")
+        draw_text("HIGH SCORE: " + str(high_score), 520, 25, NEON_PURPLE, "small")
+        draw_text("LEVEL: " + str(level + 1) + "/" + str(len(levels)), 800, 25, YELLOW, "small")
 
 
 def create_particles(x, y, color):
-    for _ in range(12):
+    for _ in range(8 if MOBILE_LAYOUT else 12):
         particles.append([
             x,
             y,
-            random.randint(-4, 4),
-            random.randint(-4, 4),
-            random.randint(15, 30),
+            random.uniform(-3, 3),
+            random.uniform(-3, 3),
+            random.randint(15, 28),
             color
         ])
 
@@ -608,223 +598,202 @@ def update_particles():
             pygame.draw.circle(screen, p[5], (int(p[0]), int(p[1])), 3)
 
 
+# =========================================================
+# TOUCH / MOVEMENT
+# =========================================================
 def draw_mobile_controls():
-    """Touch D-pad used on mobile browser and also works with mouse on desktop."""
-    draw_centered_text("TOUCH CONTROLS", 580, GRAY, "small", 40, 260)
+    show_controls = MOBILE_LAYOUT or IS_BROWSER
+    if not show_controls:
+        return
+
+    label_y = HEIGHT - 166 if MOBILE_LAYOUT else 580
+    draw_centered_text("TOUCH CONTROLS", label_y, GRAY, "tiny", 0, WIDTH if MOBILE_LAYOUT else 300)
 
     controls = [
-        (touch_left, "LEFT"),
-        (touch_right, "RIGHT"),
-        (touch_up, "UP"),
-        (touch_down, "DOWN")
+        (touch_left, "←"),
+        (touch_right, "→"),
+        (touch_up, "↑"),
+        (touch_down, "↓")
     ]
 
     for rect, label in controls:
-        is_pressed = pointer_pressed and rect.collidepoint(pointer_pos)
-        fill = OPTION_HOVER if is_pressed else OPTION_BG
-        border = YELLOW if is_pressed else OPTION_BORDER
+        pressed = pointer_pressed and rect.inflate(8, 8).collidepoint(pointer_pos)
+        fill = OPTION_HOVER if pressed else OPTION_BG
+        border = YELLOW if pressed else OPTION_BORDER
+        text_color = BLACK if pressed else WHITE
 
-        pygame.draw.rect(screen, fill, rect, border_radius=15)
-        pygame.draw.rect(screen, border, rect, 3, border_radius=15)
-
-        short_label = {
-            "LEFT": "←",
-            "RIGHT": "→",
-            "UP": "↑",
-            "DOWN": "↓"
-        }[label]
-
-        draw_centered_text(short_label, rect.y + 13, WHITE if not is_pressed else BLACK, "normal", rect.x, rect.w)
+        pygame.draw.rect(screen, fill, rect, border_radius=14)
+        pygame.draw.rect(screen, border, rect, 3, border_radius=14)
+        draw_centered_text(label, rect.y + (rect.h - get_font("normal").get_height()) // 2, text_color, "normal", rect.x, rect.w)
 
 
 def handle_touch_movement():
-    """Move the player when the user holds a touch-control button."""
     if not pointer_pressed:
         return
 
-    if touch_left.collidepoint(pointer_pos):
+    active = pygame.Rect(pointer_pos[0], pointer_pos[1], 1, 1)
+
+    if touch_left.inflate(8, 8).colliderect(active):
         player.x -= player_speed
-    if touch_right.collidepoint(pointer_pos):
+    if touch_right.inflate(8, 8).colliderect(active):
         player.x += player_speed
-    if touch_up.collidepoint(pointer_pos):
+    if touch_up.inflate(8, 8).colliderect(active):
         player.y -= player_speed
-    if touch_down.collidepoint(pointer_pos):
+    if touch_down.inflate(8, 8).colliderect(active):
         player.y += player_speed
 
 
-# =========================
-# CHARACTER DRAWING
-# =========================
+# =========================================================
+# GAME DRAWING
+# =========================================================
 def draw_animated_player():
     global hero_frame
-
     hero_frame += 1
-    bounce = int(math.sin(hero_frame * 0.15) * 4)
 
-    pygame.draw.circle(screen, (0, 80, 120), (player.centerx, player.centery + bounce), 38)
-    pygame.draw.circle(screen, NEON_BLUE, (player.centerx, player.y + 15 + bounce), 19)
+    bounce = int(math.sin(hero_frame * 0.15) * (2 if MOBILE_LAYOUT else 4))
+    glow_radius = 28 if MOBILE_LAYOUT else 38
+    head_radius = 14 if MOBILE_LAYOUT else 19
 
-    pygame.draw.rect(
-        screen,
-        NEON_GREEN,
-        (player.x + 7, player.y + 32 + bounce, 28, 28),
-        border_radius=8
-    )
+    pygame.draw.circle(screen, (0, 80, 120), (player.centerx, player.centery + bounce), glow_radius)
+    pygame.draw.circle(screen, NEON_BLUE, (player.centerx, player.y + 13 + bounce), head_radius)
 
-    pygame.draw.rect(
-        screen,
-        BLACK,
-        (player.x + 11, player.y + 8 + bounce, 22, 8),
-        border_radius=4
-    )
+    body = pygame.Rect(player.x + int(player.w * 0.18), player.y + int(player.h * 0.50) + bounce, int(player.w * 0.64), int(player.h * 0.45))
+    pygame.draw.rect(screen, NEON_GREEN, body, border_radius=7)
 
-    pygame.draw.circle(screen, WHITE, (player.x + 17, player.y + 12 + bounce), 3)
-    pygame.draw.circle(screen, WHITE, (player.x + 27, player.y + 12 + bounce), 3)
+    visor = pygame.Rect(player.x + int(player.w * 0.24), player.y + 7 + bounce, int(player.w * 0.52), 7)
+    pygame.draw.rect(screen, BLACK, visor, border_radius=4)
 
-    if hero_frame % 30 < 15:
-        pygame.draw.line(screen, WHITE, (player.x + 12, player.y + 58 + bounce), (player.x + 5, player.y + 70), 3)
-        pygame.draw.line(screen, WHITE, (player.x + 30, player.y + 58 + bounce), (player.x + 37, player.y + 70), 3)
-    else:
-        pygame.draw.line(screen, WHITE, (player.x + 12, player.y + 58 + bounce), (player.x + 16, player.y + 70), 3)
-        pygame.draw.line(screen, WHITE, (player.x + 30, player.y + 58 + bounce), (player.x + 25, player.y + 70), 3)
+    pygame.draw.circle(screen, WHITE, (player.x + int(player.w * 0.38), player.y + 10 + bounce), 2)
+    pygame.draw.circle(screen, WHITE, (player.x + int(player.w * 0.62), player.y + 10 + bounce), 2)
 
 
 def draw_enemy(name):
-    pygame.draw.circle(screen, (120, 20, 40), enemy.center, 45)
-    pygame.draw.rect(screen, RED, enemy, border_radius=12)
-    pygame.draw.rect(screen, NEON_PINK, enemy, 3, border_radius=12)
+    glow = 34 if MOBILE_LAYOUT else 45
+    pygame.draw.circle(screen, (120, 20, 40), enemy.center, glow)
+    pygame.draw.rect(screen, RED, enemy, border_radius=10)
+    pygame.draw.rect(screen, NEON_PINK, enemy, 3, border_radius=10)
 
-    pygame.draw.circle(screen, BLACK, (enemy.x + 18, enemy.y + 20), 6)
-    pygame.draw.circle(screen, BLACK, (enemy.x + 42, enemy.y + 20), 6)
+    eye_y = enemy.y + int(enemy.h * 0.35)
+    pygame.draw.circle(screen, BLACK, (enemy.x + int(enemy.w * 0.30), eye_y), 5)
+    pygame.draw.circle(screen, BLACK, (enemy.x + int(enemy.w * 0.70), eye_y), 5)
+    pygame.draw.line(screen, BLACK, (enemy.x + int(enemy.w * 0.25), enemy.y + int(enemy.h * 0.73)), (enemy.x + int(enemy.w * 0.75), enemy.y + int(enemy.h * 0.73)), 3)
 
-    pygame.draw.circle(screen, WHITE, (enemy.x + 18, enemy.y + 20), 2)
-    pygame.draw.circle(screen, WHITE, (enemy.x + 42, enemy.y + 20), 2)
-
-    pygame.draw.line(screen, BLACK, (enemy.x + 15, enemy.y + 43), (enemy.x + 45, enemy.y + 43), 4)
-    draw_wrapped_text(name, enemy.x - 50, enemy.y - 38, 160, RED, "small")
+    if not MOBILE_LAYOUT:
+        draw_wrapped_text(name, enemy.x - 50, enemy.y - 38, 160, RED, "tiny", 2, "center")
 
 
 def draw_collectible(item):
-    pygame.draw.circle(screen, YELLOW, item.center, 13)
-    pygame.draw.circle(screen, ORANGE, item.center, 7)
+    pygame.draw.circle(screen, YELLOW, item.center, item.w // 2)
+    pygame.draw.circle(screen, ORANGE, item.center, max(4, item.w // 4))
     pygame.draw.circle(screen, WHITE, item.center, 3)
 
 
 def create_safe_collectible():
-    min_x = PLAY_AREA.left + COLLECTIBLE_PADDING
-    max_x = PLAY_AREA.right - COLLECTIBLE_PADDING - COLLECTIBLE_SIZE
-    min_y = PLAY_AREA.top + COLLECTIBLE_PADDING
-    max_y = PLAY_AREA.bottom - COLLECTIBLE_PADDING - COLLECTIBLE_SIZE
+    size = 22 if MOBILE_LAYOUT else 26
+    padding = 28 if MOBILE_LAYOUT else 34
+
+    min_x = PLAY_AREA.left + padding
+    max_x = PLAY_AREA.right - padding - size
+    min_y = PLAY_AREA.top + padding
+    max_y = PLAY_AREA.bottom - padding - size
 
     for _ in range(120):
-        item = pygame.Rect(
-            random.randint(min_x, max_x),
-            random.randint(min_y, max_y),
-            COLLECTIBLE_SIZE,
-            COLLECTIBLE_SIZE
-        )
+        item = pygame.Rect(random.randint(min_x, max_x), random.randint(min_y, max_y), size, size)
 
-        too_close_to_player = item.colliderect(player.inflate(120, 120))
-        too_close_to_enemy = item.colliderect(enemy.inflate(110, 110))
-        too_close_to_other_items = any(item.colliderect(other.inflate(55, 55)) for other in collectibles)
+        too_close_to_player = item.colliderect(player.inflate(90 if MOBILE_LAYOUT else 120, 90 if MOBILE_LAYOUT else 120))
+        too_close_to_enemy = item.colliderect(enemy.inflate(80 if MOBILE_LAYOUT else 110, 80 if MOBILE_LAYOUT else 110))
+        too_close_to_other = any(item.colliderect(other.inflate(45, 45)) for other in collectibles)
 
-        if not too_close_to_player and not too_close_to_enemy and not too_close_to_other_items:
+        if not too_close_to_player and not too_close_to_enemy and not too_close_to_other:
             return item
 
-    return pygame.Rect(
-        random.randint(min_x, max_x),
-        random.randint(min_y, max_y),
-        COLLECTIBLE_SIZE,
-        COLLECTIBLE_SIZE
-    )
+    return pygame.Rect(random.randint(min_x, max_x), random.randint(min_y, max_y), size, size)
 
 
-# =========================
-# GAME RESET
-# =========================
+# =========================================================
+# RESET
+# =========================================================
 def reset_game():
-    global score, coins, level, lives, game_state, badges, selected_message
-    global question_start_time, selected_quiz_option, mission_passed, completed_levels
+    global score, coins, level, lives, game_state, selected_message
+    global badges, question_start_time, selected_quiz_option, mission_passed
 
     score = 0
     coins = 0
     level = 0
     lives = 3
-    badges = []
+    game_state = "start"
     selected_message = ""
+    badges = []
     question_start_time = 0
     selected_quiz_option = None
     mission_passed = False
     completed_levels.clear()
-    game_state = "start"
+    particles.clear()
+    make_rects_for_layout()
 
 
 def reset_mini_game():
-    global player, enemy, collectibles, mini_collected, mini_start_time, enemy_direction, mission_passed
+    global mini_start_time, enemy_direction, mission_passed
 
     mission_passed = False
+    make_rects_for_layout()
 
-    player.x = PLAY_AREA.left + 50
+    player.x = PLAY_AREA.left + 45
     player.y = PLAY_AREA.bottom - player.height - 15
 
-    enemy.x = PLAY_AREA.right - enemy.width - 150
+    enemy.x = PLAY_AREA.right - enemy.width - (80 if MOBILE_LAYOUT else 150)
     enemy.y = random.randint(PLAY_AREA.top + 35, PLAY_AREA.bottom - enemy.height - 25)
     enemy_direction = 1
-
-    mini_collected = 0
-    mini_start_time = pygame.time.get_ticks()
 
     collectibles.clear()
     for _ in range(mini_target):
         collectibles.append(create_safe_collectible())
 
+    mini_start_time = pygame.time.get_ticks()
 
-# =========================
+
+# =========================================================
 # SCREENS
-# =========================
+# =========================================================
 def start_screen():
     draw_cyber_background()
 
-    draw_centered_text("CYBERSHIELD ACADEMY", 62, NEON_BLUE, "big")
-    draw_centered_text("TEEN DIGITAL DEFENDERS", 128, NEON_GREEN, "title")
+    if MOBILE_LAYOUT:
+        draw_centered_text("CYBERSHIELD", 38, NEON_BLUE, "big")
+        draw_centered_text("TEEN DEFENDERS", 82, NEON_GREEN, "title")
 
-    draw_panel(130, 195, 740, 285, NEON_PURPLE)
-    draw_panel_title("WELCOME TO THE ACADEMY", 130, 225, 740, YELLOW, "small")
+        draw_panel(24, 140, WIDTH - 48, 310, NEON_PURPLE)
+        draw_centered_text("WELCOME", 165, YELLOW, "normal", 24, WIDTH - 48)
 
-    draw_wrapped_text(
-        "Train like a digital defender in a fast cyber-safety game made for teenagers. Complete missions, dodge online threats, answer quick safety questions, earn badges, and stop ShadowNet before it takes over the school network.",
-        185,
-        265,
-        630,
-        WHITE,
-        "small",
-        8,
-        "center"
-    )
+        draw_wrapped_text(
+            "Train like a digital defender. Complete missions, dodge online threats, answer cyber-safety questions, earn badges, and stop ShadowNet.",
+            48, 210, WIDTH - 96, WHITE, "small", 8, "center"
+        )
 
-    draw_panel_title("PLAYER ROLE", 130, 365, 740, NEON_BLUE, "small")
-    draw_wrapped_text(
-        "You are a CyberShield cadet. Your mission is to protect accounts, spot scams, keep private information safe, and make smart choices online.",
-        220,
-        400,
-        560,
-        WHITE,
-        "small",
-        8,
-        "center"
-    )
-
-    if IS_BROWSER:
-        draw_centered_text("Mobile browser mode: tap buttons and use touch controls.", 488, GRAY, "small")
+        draw_centered_text("Mobile: tap buttons and use the D-pad.", 482, GRAY, "tiny")
+        if draw_button("START GAME", 70, 540, WIDTH - 140, 58, NEON_GREEN, "normal"):
+            return "intro"
+        if draw_button("QUIT", 145, 625, WIDTH - 290, 48, RED, "small"):
+            pygame.quit()
+            sys.exit()
     else:
-        draw_centered_text("Desktop mode: use mouse and arrow keys.", 488, GRAY, "small")
+        draw_centered_text("CYBERSHIELD ACADEMY", 60, NEON_BLUE, "big")
+        draw_centered_text("TEEN DIGITAL DEFENDERS", 128, NEON_GREEN, "title")
 
-    if draw_button("START GAME", 365, 525, 270, 60, NEON_GREEN):
-        return "intro"
+        draw_panel(130, 195, 740, 285, NEON_PURPLE)
+        draw_centered_text("WELCOME TO THE ACADEMY", 225, YELLOW, "normal", 130, 740)
 
-    if draw_button("QUIT", 420, 610, 160, 45, RED):
-        pygame.quit()
-        sys.exit()
+        draw_wrapped_text(
+            "Train like a digital defender in a cyber-safety game made for teenagers. Complete missions, dodge online threats, answer quick safety questions, earn badges, and stop ShadowNet before it takes over the school network.",
+            185, 275, 630, WHITE, "small", 8, "center"
+        )
+
+        draw_centered_text("Desktop: use mouse and arrow keys. Mobile: tap and use touch controls.", 488, GRAY, "small")
+        if draw_button("START GAME", 365, 525, 270, 60, NEON_GREEN, "normal"):
+            return "intro"
+        if draw_button("QUIT", 420, 610, 160, 45, RED, "small"):
+            pygame.quit()
+            sys.exit()
 
     return "start"
 
@@ -832,37 +801,50 @@ def start_screen():
 def intro_screen():
     draw_cyber_background()
 
-    draw_centered_text("PLAYER BRIEFING", 55, NEON_PURPLE, "title")
-    draw_panel(80, 125, 840, 430, NEON_BLUE)
+    if MOBILE_LAYOUT:
+        draw_centered_text("BRIEFING", 42, NEON_PURPLE, "big")
+        draw_panel(22, 110, WIDTH - 44, 455, NEON_BLUE)
 
-    lines = [
-        "ShadowNet has launched a digital attack on the academy network.",
-        "As a CyberShield cadet, you will complete six missions based on real online safety skills.",
-        "Move your character, collect mission items, avoid enemies, and answer each question before time runs out.",
-        "Your choices matter. Smart decisions earn badges and keep the network safe."
-    ]
+        lines = [
+            "ShadowNet has launched a digital attack on the academy network.",
+            "Move your cadet, collect items, avoid enemies, and answer each question.",
+            "Correct answers earn badges and unlock your cyber defender rank."
+        ]
 
-    y = 165
-    for line in lines:
-        y = draw_wrapped_text(line, 130, y, 760, WHITE, "small", 8, "center")
-        y += 14
+        y = 150
+        for line in lines:
+            y = draw_wrapped_text(line, 48, y, WIDTH - 96, WHITE, "small", 8, "center") + 14
 
-    draw_panel_title("CADET GEAR", 80, 345, 840, NEON_GREEN, "normal")
+        draw_centered_text("CADET GEAR", 360, NEON_GREEN, "normal", 22, WIDTH - 44)
+        y = 400
+        for item in tools:
+            y = draw_wrapped_text("• " + item, 58, y, WIDTH - 116, WHITE, "small", 5, "left") + 4
 
-    tool_lines = [
-        "Firewall Shield - blocks unsafe attacks",
-        "Password Scanner - finds weak passwords",
-        "Privacy Cloak - protects personal information",
-        "2-Step Login Boost - adds extra account protection"
-    ]
+        if draw_button("CONTINUE", 90, 615, WIDTH - 180, 58, NEON_GREEN, "normal"):
+            return "concept"
+    else:
+        draw_centered_text("PLAYER BRIEFING", 55, NEON_PURPLE, "title")
+        draw_panel(80, 125, 840, 430, NEON_BLUE)
 
-    y = 388
-    for item in tool_lines:
-        draw_wrapped_text("• " + item, 185, y, 630, WHITE, "small", 6, "center")
-        y += 34
+        lines = [
+            "ShadowNet has launched a digital attack on the academy network.",
+            "As a CyberShield cadet, you will complete six missions based on real online safety skills.",
+            "Move your character, collect mission items, avoid enemies, and answer each question before time runs out.",
+            "Your choices matter. Smart decisions earn badges and keep the network safe."
+        ]
 
-    if draw_button("CONTINUE", 390, 600, 220, 60, NEON_GREEN):
-        return "concept"
+        y = 165
+        for line in lines:
+            y = draw_wrapped_text(line, 130, y, 760, WHITE, "small", 8, "center") + 12
+
+        draw_centered_text("CADET GEAR", 345, NEON_GREEN, "normal", 80, 840)
+        y = 390
+        for item in tools:
+            draw_wrapped_text("• " + item, 220, y, 560, WHITE, "small", 6, "center")
+            y += 35
+
+        if draw_button("CONTINUE", 390, 600, 220, 60, NEON_GREEN, "normal"):
+            return "concept"
 
     return "intro"
 
@@ -870,25 +852,46 @@ def intro_screen():
 def concept_screen():
     draw_cyber_background()
 
-    draw_centered_text("HOW TO PLAY", 55, NEON_BLUE, "title")
-    draw_panel(85, 130, 830, 430, NEON_GREEN)
+    if MOBILE_LAYOUT:
+        draw_centered_text("HOW TO PLAY", 42, NEON_BLUE, "big")
+        draw_panel(22, 115, WIDTH - 44, 440, NEON_GREEN)
 
-    lines = [
-        "Desktop: use arrow keys to move your cadet around the mission zone.",
-        "Mobile: hold the touch D-pad buttons to move your cadet.",
-        "Collect all mission items before the timer reaches zero.",
-        "Avoid enemies. Touching one will cost you a life.",
-        "After every mission, answer a quick cyber-safety question."
-    ]
+        lines = [
+            "Desktop: use arrow keys.",
+            "Mobile: hold the touch D-pad.",
+            "Collect all mission items.",
+            "Avoid enemies or you lose a life.",
+            "Answer the question correctly to pass."
+        ]
 
-    y = 175
-    for line in lines:
-        draw_panel(145, y - 8, 710, 42, NEON_BLUE)
-        draw_wrapped_text(line, 175, y, 650, WHITE, "small", 6, "center")
-        y += 68
+        y = 150
+        for line in lines:
+            draw_panel(45, y - 8, WIDTH - 90, 48, NEON_BLUE)
+            draw_wrapped_text(line, 62, y, WIDTH - 124, WHITE, "small", 4, "center")
+            y += 72
 
-    if draw_button("OPEN MISSION MAP", 340, 600, 320, 60, NEON_GREEN):
-        return "map"
+        if draw_button("OPEN MISSION MAP", 60, 615, WIDTH - 120, 58, NEON_GREEN, "small"):
+            return "map"
+    else:
+        draw_centered_text("HOW TO PLAY", 55, NEON_BLUE, "title")
+        draw_panel(85, 130, 830, 430, NEON_GREEN)
+
+        lines = [
+            "Desktop: use arrow keys or WASD to move your cadet.",
+            "Mobile: hold the touch D-pad buttons to move your cadet.",
+            "Collect all mission items before the timer reaches zero.",
+            "Avoid enemies. Touching one will cost you a life.",
+            "After every mission, answer a quick cyber-safety question."
+        ]
+
+        y = 175
+        for line in lines:
+            draw_panel(145, y - 8, 710, 42, NEON_BLUE)
+            draw_wrapped_text(line, 175, y, 650, WHITE, "small", 6, "center")
+            y += 68
+
+        if draw_button("OPEN MISSION MAP", 340, 600, 320, 60, NEON_GREEN, "normal"):
+            return "map"
 
     return "concept"
 
@@ -899,92 +902,73 @@ def map_screen():
     draw_cyber_background()
     draw_hud()
 
-    first_level_unlocked = 0 in completed_levels
+    first_done = 0 in completed_levels
 
-    draw_centered_text("MISSION MAP", 110, YELLOW, "title")
-
-    if first_level_unlocked:
-        draw_centered_text("Level 1 unlocked the map. Choose any mission you want to play.", 165, WHITE, "small")
-    else:
-        draw_centered_text("Play Level 1 first to unlock the full mission map.", 165, WHITE, "small")
+    draw_centered_text("MISSION MAP", 98 if MOBILE_LAYOUT else 110, YELLOW, "title")
+    message = "Choose any mission." if first_done else "Play Level 1 first to unlock the full map."
+    draw_wrapped_text(message, 30 if MOBILE_LAYOUT else 100, 136 if MOBILE_LAYOUT else 165, WIDTH - 60 if MOBILE_LAYOUT else 800, WHITE, "small", 4, "center")
 
     zone_names = [
-        "Password Power-Up",
-        "Scam Message Zone",
-        "Privacy Street",
-        "Malware Rush",
-        "Kindness Arena",
-        "ShadowNet Showdown"
+        "Password",
+        "Scam",
+        "Privacy",
+        "Malware",
+        "Kindness",
+        "ShadowNet"
     ]
 
-    x_positions = [80, 330, 620, 140, 430, 720]
-    y_positions = [230, 230, 230, 415, 415, 415]
+    if MOBILE_LAYOUT:
+        card_w, card_h = 178, 92
+        x_positions = [28, 224, 28, 224, 28, 224]
+        y_positions = [185, 185, 300, 300, 415, 415]
+    else:
+        card_w, card_h = 210, 95
+        x_positions = [80, 330, 620, 140, 430, 720]
+        y_positions = [230, 230, 230, 415, 415, 415]
 
     for i, name in enumerate(zone_names):
-        zone_rect = pygame.Rect(x_positions[i], y_positions[i], 210, 95)
+        rect = pygame.Rect(x_positions[i], y_positions[i], card_w, card_h)
         is_completed = i in completed_levels
-        is_locked = not first_level_unlocked
-        is_selected = first_level_unlocked and i == level and not is_completed
-        is_hovered = zone_rect.collidepoint(pointer_pos) and first_level_unlocked
+        is_playable = first_done or i == 0
 
-        if is_locked:
-            color = ORANGE if i == 0 else GRAY
+        if not is_playable:
+            color = GRAY
             status = "LOCKED"
         elif is_completed:
             color = NEON_GREEN
             status = "CLEARED"
-        elif is_selected:
+        elif i == level:
             color = YELLOW
             status = "SELECTED"
         else:
-            color = NEON_BLUE if is_hovered else NEON_PURPLE
+            color = NEON_BLUE if rect.collidepoint(pointer_pos) else NEON_PURPLE
             status = "ACTIVE"
 
-        draw_panel(x_positions[i], y_positions[i], 210, 95, color)
-        draw_wrapped_text(name, x_positions[i] + 15, y_positions[i] + 22, 180, color, "small", 4, "center")
-        draw_panel_title(status, x_positions[i], y_positions[i] + 65, 210, color, "small")
+        draw_panel(rect.x, rect.y, rect.w, rect.h, color)
+        draw_wrapped_text(name, rect.x + 10, rect.y + 20, rect.w - 20, color, "small", 3, "center")
+        draw_centered_text(status, rect.y + rect.h - 30, color, "tiny", rect.x, rect.w)
 
-        if is_hovered and mouse_clicked:
-            play(click_sound)
+        if is_playable and consume_click(rect):
             level = i
 
-    draw_panel(170, 540, 660, 58, NEON_PURPLE)
+    if MOBILE_LAYOUT:
+        panel_y = 540
+        draw_panel(26, panel_y, WIDTH - 52, 58, NEON_PURPLE)
+        draw_wrapped_text("Selected: " + levels[level]["title"], 42, panel_y + 13, WIDTH - 84, WHITE, "tiny", 3, "center")
 
-    if first_level_unlocked:
-        draw_wrapped_text(
-            "SELECTED MISSION: " + levels[level]["title"],
-            205,
-            558,
-            590,
-            WHITE,
-            "small",
-            6,
-            "center"
-        )
-        button_text = "START SELECTED MISSION"
-        button_color = NEON_GREEN
-        button_x = 330
-        button_w = 340
+        if draw_button("START MISSION", 68, 625, WIDTH - 136, 58, NEON_GREEN if first_done else ORANGE, "small"):
+            if first_done or level == 0:
+                reset_mini_game()
+                return "mini"
     else:
-        level = 0
-        draw_wrapped_text(
-            "ENTRY CHALLENGE: Complete Level 1 once to unlock all other missions.",
-            205,
-            555,
-            590,
-            WHITE,
-            "small",
-            6,
-            "center"
-        )
-        button_text = "PLAY LEVEL 1"
-        button_color = ORANGE
-        button_x = 380
-        button_w = 240
+        draw_panel(170, 540, 660, 58, NEON_PURPLE)
+        selected_text = "SELECTED MISSION: " + levels[level]["title"]
+        draw_wrapped_text(selected_text, 205, 558, 590, WHITE, "small", 6, "center")
 
-    if draw_button(button_text, button_x, 615, button_w, 60, button_color):
-        reset_mini_game()
-        return "mini"
+        if draw_button("START SELECTED MISSION" if first_done else "PLAY LEVEL 1", 330 if first_done else 380, 615, 340 if first_done else 240, 60, NEON_GREEN if first_done else ORANGE, "small"):
+            if first_done or level == 0:
+                reset_mini_game()
+                return "mini"
 
     return "map"
 
@@ -1003,16 +987,22 @@ def mini_game_screen():
     time_left = max(0, mission_time - elapsed)
     timer_ratio = time_left / mission_time
 
-    draw_centered_text(current["title"], 100, theme_color, "normal")
-    draw_wrapped_text(current["zone"], 100, 135, 800, WHITE, "small", 7, "center", 3)
+    if MOBILE_LAYOUT:
+        draw_centered_text(current["title"].replace("Level ", "L"), 90, theme_color, "small")
+        draw_wrapped_text(current["zone"], 30, 120, WIDTH - 60, WHITE, "tiny", 3, "center")
+        draw_text("Collect: " + str(mini_target), 28, 166, NEON_GREEN, "tiny")
+        draw_text("Time: " + str(time_left), WIDTH - 105, 166, RED, "tiny")
+        draw_progress_bar(150, 170, 120, 12, timer_ratio, theme_color if timer_ratio > 0.35 else RED)
+    else:
+        draw_centered_text(current["title"], 100, theme_color, "normal")
+        draw_wrapped_text(current["zone"], 100, 135, 800, WHITE, "small", 7, "center")
+        draw_text("COLLECT: " + str(mini_target) + " " + current["item"], 55, 180, NEON_GREEN, "small")
+        draw_text("TIME: " + str(time_left), 805, 100, RED, "small")
+        draw_progress_bar(735, 135, 210, 18, timer_ratio, theme_color if timer_ratio > 0.35 else RED)
+        draw_centered_text("Desktop: arrow keys/WASD  •  Mobile: touch D-pad  •  Avoid enemies", 200, GRAY, "small")
 
-    draw_text("COLLECT: " + str(mini_target) + " " + current["item"], 55, 180, NEON_GREEN, "small")
-    draw_text("TIME: " + str(time_left), 805, 100, RED, "small")
-    draw_progress_bar(735, 135, 210, 18, timer_ratio, theme_color if timer_ratio > 0.35 else RED)
-    draw_centered_text("Desktop: arrow keys  •  Mobile: touch D-pad  •  Avoid enemies", 200, GRAY, "small")
-
-    pygame.draw.rect(screen, DARK_PANEL, PLAY_AREA, border_radius=20)
-    pygame.draw.rect(screen, theme_color, PLAY_AREA, 2, border_radius=20)
+    pygame.draw.rect(screen, DARK_PANEL, PLAY_AREA, border_radius=18)
+    pygame.draw.rect(screen, theme_color, PLAY_AREA, 2, border_radius=18)
 
     keys = pygame.key.get_pressed()
 
@@ -1027,21 +1017,20 @@ def mini_game_screen():
 
     handle_touch_movement()
 
-    player.left = max(player.left, PLAY_AREA.left + 10)
-    player.right = min(player.right, PLAY_AREA.right - 10)
-    player.top = max(player.top, PLAY_AREA.top + 10)
-    player.bottom = min(player.bottom, PLAY_AREA.bottom - 10)
+    player.left = max(player.left, PLAY_AREA.left + 8)
+    player.right = min(player.right, PLAY_AREA.right - 8)
+    player.top = max(player.top, PLAY_AREA.top + 8)
+    player.bottom = min(player.bottom, PLAY_AREA.bottom - 8)
 
-    current_enemy_speed = enemy_speed + (level * 0.25)
+    current_enemy_speed = enemy_speed + (level * (0.18 if MOBILE_LAYOUT else 0.25))
     enemy.x += current_enemy_speed * enemy_direction
 
-    if enemy.left <= PLAY_AREA.left + 20 or enemy.right >= PLAY_AREA.right - 20:
+    if enemy.left <= PLAY_AREA.left + 16 or enemy.right >= PLAY_AREA.right - 16:
         enemy_direction *= -1
-        enemy.y = random.randint(PLAY_AREA.top + 35, PLAY_AREA.bottom - enemy.height - 25)
+        enemy.y = random.randint(PLAY_AREA.top + 28, PLAY_AREA.bottom - enemy.height - 20)
 
     for item in collectibles[:]:
         draw_collectible(item)
-
         if player.colliderect(item):
             collectibles.remove(item)
             coins += 2
@@ -1054,8 +1043,13 @@ def mini_game_screen():
     update_particles()
 
     collected_now = mini_target - len(collectibles)
-    draw_centered_text("COLLECTED: " + str(collected_now) + "/" + str(mini_target), 572, NEON_GREEN, "small")
-    draw_progress_bar(390, 595, 220, 14, collected_now / mini_target, NEON_GREEN)
+
+    if MOBILE_LAYOUT:
+        draw_centered_text("Collected: " + str(collected_now) + "/" + str(mini_target), PLAY_AREA.bottom + 14, NEON_GREEN, "tiny")
+        draw_progress_bar(120, PLAY_AREA.bottom + 40, WIDTH - 240, 12, collected_now / mini_target, NEON_GREEN)
+    else:
+        draw_centered_text("COLLECTED: " + str(collected_now) + "/" + str(mini_target), 572, NEON_GREEN, "small")
+        draw_progress_bar(390, 595, 220, 14, collected_now / mini_target, NEON_GREEN)
 
     draw_mobile_controls()
 
@@ -1065,9 +1059,9 @@ def mini_game_screen():
         selected_message = "You touched an enemy and lost one life. Keep moving and try again!"
         create_particles(player.centerx, player.centery, RED)
 
-        player.x = PLAY_AREA.left + 50
+        player.x = PLAY_AREA.left + 45
         player.y = PLAY_AREA.bottom - player.height - 15
-        enemy.x = PLAY_AREA.right - enemy.width - 150
+        enemy.x = PLAY_AREA.right - enemy.width - (80 if MOBILE_LAYOUT else 150)
 
         if lives <= 0:
             return "end"
@@ -1079,7 +1073,7 @@ def mini_game_screen():
 
     if time_left <= 0:
         lives -= 1
-        selected_message = "Mission timer ended. You lost one life, but you can recover on the next try."
+        selected_message = "Mission timer ended. You lost one life, but you can try again."
         play(wrong_sound)
 
         if lives <= 0:
@@ -1091,7 +1085,7 @@ def mini_game_screen():
 
 
 def quiz_screen():
-    global score, coins, level, selected_message, lives
+    global score, coins, selected_message, lives
     global question_start_time, selected_quiz_option, mission_passed
 
     current = levels[level]
@@ -1108,22 +1102,34 @@ def quiz_screen():
     time_left = max(0, question_time - elapsed)
     timer_ratio = time_left / question_time
 
-    draw_centered_text(current["title"], 102, theme_color, "title")
-    draw_centered_text("QUESTION TIMER: " + str(time_left), 153, RED, "small")
-    draw_progress_bar(365, 176, 270, 16, timer_ratio, theme_color if timer_ratio > 0.35 else RED)
+    if MOBILE_LAYOUT:
+        draw_centered_text("CYBER QUESTION", 94, theme_color, "title")
+        draw_centered_text("Timer: " + str(time_left), 128, RED, "small")
+        draw_progress_bar(110, 158, WIDTH - 220, 13, timer_ratio, theme_color if timer_ratio > 0.35 else RED)
 
-    draw_panel(55, 205, 890, 420, theme_color)
+        draw_panel(20, 185, WIDTH - 40, 460, theme_color)
+        draw_wrapped_text(current["story"], 40, 212, WIDTH - 80, WHITE, "tiny", 5, "center")
+        draw_wrapped_text(current["question"], 40, 292, WIDTH - 80, NEON_GREEN, "small", 5, "center")
 
-    draw_panel_title("MISSION STORY", 55, 230, 890, NEON_BLUE, "normal")
-    draw_wrapped_text(current["story"], 105, 267, 790, WHITE, "small", 7, "center", 3)
+        y = 378
+        option_x, option_w, option_h = 30, WIDTH - 60, 56
+    else:
+        draw_centered_text(current["title"], 102, theme_color, "title")
+        draw_centered_text("QUESTION TIMER: " + str(time_left), 153, RED, "small")
+        draw_progress_bar(365, 176, 270, 16, timer_ratio, theme_color if timer_ratio > 0.35 else RED)
 
-    draw_panel_title("QUESTION", 55, 325, 890, NEON_GREEN, "normal")
-    draw_wrapped_text(current["question"], 105, 360, 790, WHITE, "small", 7, "center", 3)
-    draw_centered_text("Choose with mouse/touch or press keys 1 - 4", 400, GRAY, "small")
+        draw_panel(55, 205, 890, 420, theme_color)
+        draw_centered_text("MISSION STORY", 230, NEON_BLUE, "normal", 55, 890)
+        draw_wrapped_text(current["story"], 105, 267, 790, WHITE, "small", 7, "center")
+        draw_centered_text("QUESTION", 325, NEON_GREEN, "normal", 55, 890)
+        draw_wrapped_text(current["question"], 105, 360, 790, WHITE, "small", 7, "center")
+        draw_centered_text("Choose with mouse/touch or press keys 1 - 4", 400, GRAY, "small")
 
-    y = 428
+        y = 428
+        option_x, option_w, option_h = 110, 780, 48
+
     for i, option in enumerate(current["options"]):
-        clicked = draw_quiz_option_button(i, option, 110, y, 780, 48, theme_color)
+        clicked = draw_quiz_option(i, option, option_x, y, option_w, option_h, theme_color)
         key_selected = selected_quiz_option == i
 
         if clicked or key_selected:
@@ -1151,7 +1157,7 @@ def quiz_screen():
 
             return "result"
 
-        y += 56
+        y += 66 if MOBILE_LAYOUT else 56
 
     if time_left <= 0:
         question_start_time = 0
@@ -1170,64 +1176,91 @@ def quiz_screen():
 
 
 def result_screen():
-    global level, mission_passed, completed_levels
+    global level, mission_passed
 
     draw_cyber_background()
     draw_hud()
 
     if mission_passed:
         completed_levels.add(level)
-        all_unlocked_missions_done = len(completed_levels) >= len(levels)
+        all_done = len(completed_levels) >= len(levels)
         title_text = "MISSION PASSED"
-        button_text = "VIEW FINAL REPORT" if all_unlocked_missions_done else "BACK TO MAP"
+        button_text = "FINAL REPORT" if all_done else "BACK TO MAP"
         title_color = NEON_GREEN
     else:
-        all_unlocked_missions_done = False
+        all_done = False
         title_text = "MISSION NOT PASSED"
         button_text = "RETRY MISSION"
         title_color = ORANGE
 
-    draw_centered_text(title_text, 110, title_color, "title")
+    if MOBILE_LAYOUT:
+        draw_centered_text(title_text, 105, title_color, "title")
+        draw_panel(22, 158, WIDTH - 44, 390, title_color)
 
-    draw_panel(85, 180, 830, 330, title_color)
-    draw_wrapped_text(selected_message, 135, 225, 730, WHITE, "small", 8, "center")
+        draw_wrapped_text(selected_message, 46, 190, WIDTH - 92, WHITE, "small", 7, "center")
 
-    if mission_passed:
-        draw_panel_title("TOOLS USED", 85, 330, 830, NEON_BLUE, "normal")
-
-        y = 372
-        for tool in tools:
-            draw_wrapped_text("• " + tool, 180, y, 640, WHITE, "small", 6, "center")
-            y += 35
-    else:
-        draw_panel_title("TRY AGAIN TIP", 85, 330, 830, NEON_BLUE, "normal")
-        draw_wrapped_text(
-            "Complete the mission item collection again, then answer the question correctly to pass this mission.",
-            180,
-            375,
-            640,
-            WHITE,
-            "small",
-            6,
-            "center"
-        )
-
-    if draw_button(button_text, 375, 590, 250, 60, NEON_BLUE if mission_passed else ORANGE):
         if mission_passed:
-            passed_level = level
-            mission_passed = False
+            draw_centered_text("TOOLS USED", 345, NEON_BLUE, "small", 22, WIDTH - 44)
+            y = 388
+            for tool in tools:
+                y = draw_wrapped_text("• " + tool, 58, y, WIDTH - 116, WHITE, "tiny", 4, "left") + 2
+        else:
+            draw_centered_text("TRY AGAIN TIP", 345, NEON_BLUE, "small", 22, WIDTH - 44)
+            draw_wrapped_text(
+                "Collect the items again and choose the correct answer to pass this mission.",
+                52, 390, WIDTH - 104, WHITE, "small", 6, "center"
+            )
 
-            if all_unlocked_missions_done:
-                play(win_sound)
-                return "end"
+        if draw_button(button_text, 80, 615, WIDTH - 160, 58, NEON_BLUE if mission_passed else ORANGE, "small"):
+            if mission_passed:
+                passed_level = level
+                mission_passed = False
 
-            if passed_level == 0:
-                level = 1
+                if all_done:
+                    play(win_sound)
+                    return "end"
 
-            return "map"
+                if passed_level == 0 and len(completed_levels) == 1:
+                    level = 1
 
-        reset_mini_game()
-        return "mini"
+                return "map"
+
+            reset_mini_game()
+            return "mini"
+    else:
+        draw_centered_text(title_text, 110, title_color, "title")
+        draw_panel(85, 180, 830, 330, title_color)
+        draw_wrapped_text(selected_message, 135, 225, 730, WHITE, "small", 8, "center")
+
+        if mission_passed:
+            draw_centered_text("TOOLS USED", 330, NEON_BLUE, "normal", 85, 830)
+            y = 372
+            for tool in tools:
+                draw_wrapped_text("• " + tool, 180, y, 640, WHITE, "small", 6, "center")
+                y += 35
+        else:
+            draw_centered_text("TRY AGAIN TIP", 330, NEON_BLUE, "normal", 85, 830)
+            draw_wrapped_text(
+                "Complete the mission item collection again, then answer the question correctly to pass this mission.",
+                180, 375, 640, WHITE, "small", 6, "center"
+            )
+
+        if draw_button(button_text, 375, 590, 250, 60, NEON_BLUE if mission_passed else ORANGE, "normal"):
+            if mission_passed:
+                passed_level = level
+                mission_passed = False
+
+                if all_done:
+                    play(win_sound)
+                    return "end"
+
+                if passed_level == 0 and len(completed_levels) == 1:
+                    level = 1
+
+                return "map"
+
+            reset_mini_game()
+            return "mini"
 
     return "result"
 
@@ -1241,20 +1274,12 @@ def end_screen():
         high_score = score
         save_high_score(high_score)
 
-    draw_centered_text("GAME COMPLETE", 55, NEON_PURPLE, "big")
-    draw_panel(110, 135, 780, 430, NEON_BLUE)
-
-    draw_centered_text("FINAL REPORT", 165, YELLOW, "normal", 110, 780)
-    draw_centered_text("FINAL SCORE: " + str(score), 210, NEON_BLUE, "normal", 110, 780)
-    draw_centered_text("DEFENDER CREDITS: " + str(coins), 250, NEON_GREEN, "normal", 110, 780)
-    draw_centered_text("HIGH SCORE: " + str(high_score), 290, NEON_PURPLE, "normal", 110, 780)
-
     if lives <= 0:
-        ending = "ShadowNet broke through this time. Replay the academy missions and level up your cyber skills."
+        ending = "ShadowNet broke through this time. Replay the missions and level up your cyber skills."
         rank = "Rookie Cadet"
         rank_color = RED
     elif score >= 85:
-        ending = "Amazing work! You stopped ShadowNet, protected the academy, and proved you are a top digital defender."
+        ending = "Amazing work! You stopped ShadowNet and proved you are a top digital defender."
         rank = "Elite Teen Defender"
         rank_color = YELLOW
     elif score >= 65:
@@ -1270,54 +1295,80 @@ def end_screen():
         rank = "New Defender"
         rank_color = WHITE
 
-    draw_centered_text("RANK: " + rank, 335, rank_color, "normal", 110, 780)
-    draw_wrapped_text(ending, 170, 380, 660, WHITE, "small", 8, "center")
+    if MOBILE_LAYOUT:
+        draw_centered_text("GAME REPORT", 45, NEON_PURPLE, "big")
+        draw_panel(22, 118, WIDTH - 44, 430, NEON_BLUE)
 
-    draw_centered_text("BADGES EARNED", 442, NEON_GREEN, "small", 110, 780)
+        draw_centered_text("Final Score: " + str(score), 150, NEON_BLUE, "small", 22, WIDTH - 44)
+        draw_centered_text("Credits: " + str(coins), 184, NEON_GREEN, "small", 22, WIDTH - 44)
+        draw_centered_text("High Score: " + str(high_score), 218, NEON_PURPLE, "small", 22, WIDTH - 44)
+        draw_centered_text("Rank: " + rank, 260, rank_color, "small", 22, WIDTH - 44)
+        draw_wrapped_text(ending, 48, 305, WIDTH - 96, WHITE, "small", 7, "center")
 
-    y = 472
-    if badges:
-        for badge in badges[:4]:
-            draw_wrapped_text("• " + badge, 220, y, 560, WHITE, "small", 4, "center")
-            y += 25
+        draw_centered_text("Badges Earned", 420, NEON_GREEN, "small", 22, WIDTH - 44)
+        y = 455
+        if badges:
+            for badge in badges[:4]:
+                y = draw_wrapped_text("• " + badge, 70, y, WIDTH - 140, WHITE, "tiny", 3, "center")
+        else:
+            draw_centered_text("No badges earned yet.", y, WHITE, "tiny", 22, WIDTH - 44)
+
+        if draw_button("PLAY AGAIN", 48, 600, 150, 55, NEON_GREEN, "small"):
+            reset_game()
+            return "start"
+        if draw_button("QUIT", 232, 600, 150, 55, RED, "small"):
+            pygame.quit()
+            sys.exit()
     else:
-        draw_centered_text("No badges earned yet.", y, WHITE, "small", 110, 780)
+        draw_centered_text("GAME COMPLETE", 55, NEON_PURPLE, "big")
+        draw_panel(110, 135, 780, 430, NEON_BLUE)
 
-    if draw_button("PLAY AGAIN", 260, 610, 230, 55, NEON_GREEN):
-        reset_game()
-        return "start"
+        draw_centered_text("FINAL REPORT", 165, YELLOW, "normal", 110, 780)
+        draw_centered_text("FINAL SCORE: " + str(score), 210, NEON_BLUE, "normal", 110, 780)
+        draw_centered_text("DEFENDER CREDITS: " + str(coins), 250, NEON_GREEN, "normal", 110, 780)
+        draw_centered_text("HIGH SCORE: " + str(high_score), 290, NEON_PURPLE, "normal", 110, 780)
+        draw_centered_text("RANK: " + rank, 335, rank_color, "normal", 110, 780)
+        draw_wrapped_text(ending, 170, 380, 660, WHITE, "small", 8, "center")
 
-    if draw_button("QUIT GAME", 520, 610, 220, 55, RED):
-        pygame.quit()
-        sys.exit()
+        draw_centered_text("BADGES EARNED", 442, NEON_GREEN, "small", 110, 780)
+        y = 472
+        if badges:
+            for badge in badges[:4]:
+                draw_wrapped_text("• " + badge, 220, y, 560, WHITE, "small", 4, "center")
+                y += 25
+        else:
+            draw_centered_text("No badges earned yet.", y, WHITE, "small", 110, 780)
+
+        if draw_button("PLAY AGAIN", 260, 610, 230, 55, NEON_GREEN, "normal"):
+            reset_game()
+            return "start"
+        if draw_button("QUIT GAME", 520, 610, 220, 55, RED, "normal"):
+            pygame.quit()
+            sys.exit()
 
     return "end"
 
 
-# =========================
-# INPUT HELPERS
-# =========================
-def finger_to_screen(event):
-    """Convert mobile touch coordinate from 0..1 into game screen coordinates."""
-    return int(event.x * WIDTH), int(event.y * HEIGHT)
-
-
+# =========================================================
+# INPUT
+# =========================================================
 def update_input_from_event(event):
-    global mouse_clicked, pointer_pressed, pointer_pos, selected_quiz_option, game_state
+    global pointer_pos, pointer_pressed, pointer_just_pressed
+    global selected_quiz_option
 
     if event.type == pygame.QUIT:
         pygame.quit()
         sys.exit()
 
-    if IS_BROWSER and event.type == pygame.VIDEORESIZE:
-        update_display_size(event.w, event.h)
+    if event.type == pygame.VIDEORESIZE:
+        configure_layout_after_resize(event.w, event.h)
 
     if event.type == pygame.MOUSEMOTION:
         pointer_pos = screen_to_game_pos(event.pos)
 
     if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
         pointer_pressed = True
-        mouse_clicked = True
+        pointer_just_pressed = True
         pointer_pos = screen_to_game_pos(event.pos)
 
     if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
@@ -1326,16 +1377,16 @@ def update_input_from_event(event):
 
     if event.type == pygame.FINGERDOWN:
         pointer_pressed = True
-        mouse_clicked = True
-        pointer_pos = finger_to_screen(event)
+        pointer_just_pressed = True
+        pointer_pos = finger_to_game_pos(event)
 
     if event.type == pygame.FINGERMOTION:
         pointer_pressed = True
-        pointer_pos = finger_to_screen(event)
+        pointer_pos = finger_to_game_pos(event)
 
     if event.type == pygame.FINGERUP:
         pointer_pressed = False
-        pointer_pos = finger_to_screen(event)
+        pointer_pos = finger_to_game_pos(event)
 
     if event.type == pygame.KEYDOWN:
         if event.key == pygame.K_ESCAPE:
@@ -1356,17 +1407,15 @@ def update_input_from_event(event):
                 selected_quiz_option = 3
 
 
-# =========================
-# MAIN GAME LOOP
-# =========================
+# =========================================================
+# MAIN LOOP
+# =========================================================
 async def main():
-    global mouse_clicked, pointer_pos, game_state
+    global pointer_pos, pointer_just_pressed, game_state
 
     while True:
-        mouse_clicked = False
+        pointer_just_pressed = False
 
-        # Desktop mouse hover support. In browser/mobile, convert real screen
-        # coordinates back into the virtual 1000x700 game coordinates.
         if not pointer_pressed:
             try:
                 pointer_pos = screen_to_game_pos(pygame.mouse.get_pos())
@@ -1378,32 +1427,23 @@ async def main():
 
         if game_state == "start":
             game_state = start_screen()
-
         elif game_state == "intro":
             game_state = intro_screen()
-
         elif game_state == "concept":
             game_state = concept_screen()
-
         elif game_state == "map":
             game_state = map_screen()
-
         elif game_state == "mini":
             game_state = mini_game_screen()
-
         elif game_state == "quiz":
             game_state = quiz_screen()
-
         elif game_state == "result":
             game_state = result_screen()
-
         elif game_state == "end":
             game_state = end_screen()
 
         present_frame()
         clock.tick(60)
-
-        # Required for Pygbag/mobile browser. Also works on desktop.
         await asyncio.sleep(0)
 
 
